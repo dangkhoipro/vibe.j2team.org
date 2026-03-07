@@ -24,6 +24,20 @@ type CaseVariant = {
   value: string
 }
 
+type DiffLine = {
+  type: 'same' | 'added' | 'removed' | 'changed'
+  left: string
+  right: string
+}
+
+type ParsedHeader = {
+  key: string
+  value: string
+}
+
+type CsvRow = Record<string, string>
+type ToolPageId = 'builders' | 'data' | 'time' | 'inspect'
+
 type JsonPrimitive = string | number | boolean | null
 type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue }
 
@@ -59,7 +73,27 @@ const caseInput = ref('dev pocket tools v2')
 const jsonTypeInput = ref('{\n  "id": 1,\n  "name": "J2TEAM",\n  "tags": ["tools", "dev"],\n  "profile": {\n    "active": true,\n    "score": 9.8\n  }\n}')
 const uuidCount = ref(3)
 const uuidList = ref<string[]>([])
+const htmlInput = ref('<button title="Dev & Tools">Click me</button>')
+const diffLeft = ref('alpha\nbeta\ngamma\ndelta')
+const diffRight = ref('alpha\nbeta updated\ngamma\nepsilon')
+const cronInput = ref('*/15 9-18 * * 1-5')
+const queryBuilderInput = ref('q=dev tools\nlang=vi\nsort=newest')
+const numberBaseInput = ref('255')
+const numberBase = ref<'10' | '2' | '8' | '16'>('10')
+const relativeTimestampInput = ref(Math.floor(Date.now() / 1000).toString())
+const rawHeadersInput = ref('Content-Type: application/json\nAuthorization: Bearer token\nX-Request-ID: abc-123')
+const csvInput = ref('name,role,active\nJ2TEAM,community,true\nKhiem,author,true')
+const colorInput = ref('#ff6b4a')
 const copyStatus = ref<CopyStatus | null>(null)
+const currentPage = ref<ToolPageId>('builders')
+const toolPages = [
+  { id: 'builders', label: 'Builders', description: 'JWT, hash, case, type, UUID' },
+  { id: 'data', label: 'Data & Text', description: 'JSON, Base64, URL, query, HTML' },
+  { id: 'time', label: 'Time & Rules', description: 'Timestamp, relative, regex, cron, slug' },
+  { id: 'inspect', label: 'Inspect & Convert', description: 'Diff, headers, CSV, color, number base' },
+] satisfies Array<{ id: ToolPageId; label: string; description: string }>
+const defaultToolPage = toolPages[0]!
+const currentToolPage = computed(() => toolPages.find((page) => page.id === currentPage.value) ?? defaultToolPage)
 
 const jsonResult = computed(() => {
   const source = jsonInput.value.trim()
@@ -297,6 +331,293 @@ const jsonTypeResult = computed(() => {
   }
 })
 
+const htmlEscapeResult = computed(() => {
+  const source = htmlInput.value
+
+  if (!source) {
+    return {
+      tone: 'default' as const,
+      escaped: '',
+      unescaped: '',
+      message: 'Nhập HTML hoặc text để escape và unescape.',
+    }
+  }
+
+  const escaped = escapeHtml(source)
+
+  return {
+    tone: 'success' as const,
+    escaped,
+    unescaped: unescapeHtml(source),
+    message: 'Đã chuyển đổi giữa dạng raw và escaped.',
+  }
+})
+
+const diffResult = computed(() => {
+  const leftLines = diffLeft.value.split('\n')
+  const rightLines = diffRight.value.split('\n')
+  const total = Math.max(leftLines.length, rightLines.length)
+  const lines: DiffLine[] = []
+
+  for (let index = 0; index < total; index += 1) {
+    const left = leftLines[index] ?? ''
+    const right = rightLines[index] ?? ''
+
+    if (left === right) {
+      lines.push({ type: 'same', left, right })
+    } else if (!left && right) {
+      lines.push({ type: 'added', left: '', right })
+    } else if (left && !right) {
+      lines.push({ type: 'removed', left, right: '' })
+    } else {
+      lines.push({ type: 'changed', left, right })
+    }
+  }
+
+  return {
+    lines,
+    summary: `${lines.filter((line) => line.type !== 'same').length} dòng có khác biệt.`,
+  }
+})
+
+const cronResult = computed(() => {
+  const source = cronInput.value.trim()
+
+  if (!source) {
+    return {
+      tone: 'default' as const,
+      message: 'Nhập cron 5 field theo định dạng phút giờ ngày-tháng tháng thứ.',
+      output: '',
+    }
+  }
+
+  const parts = source.split(/\s+/)
+
+  if (parts.length !== 5) {
+    return {
+      tone: 'error' as const,
+      message: 'Cron v3 hiện chỉ hỗ trợ đúng 5 field.',
+      output: '',
+    }
+  }
+
+  const [minute = '*', hour = '*', dayOfMonth = '*', month = '*', dayOfWeek = '*'] = parts
+
+  return {
+    tone: 'success' as const,
+    message: 'Diễn giải cron ở mức đọc nhanh, không thay thế parser đầy đủ.',
+    output: `Chạy ${describeCronField(minute, 'phút')} | ${describeCronField(hour, 'giờ')} | ${describeCronField(dayOfMonth, 'ngày trong tháng')} | ${describeCronField(month, 'tháng')} | ${describeCronField(dayOfWeek, 'thứ trong tuần')}.`,
+  }
+})
+
+const queryBuilderResult = computed(() => {
+  const entries = queryBuilderInput.value
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const separatorIndex = line.indexOf('=')
+
+      if (separatorIndex === -1) {
+        return { key: line, value: '' }
+      }
+
+      return {
+        key: line.slice(0, separatorIndex).trim(),
+        value: line.slice(separatorIndex + 1).trim(),
+      }
+    })
+    .filter((entry) => entry.key)
+
+  const params = new URLSearchParams()
+
+  entries.forEach((entry) => {
+    params.append(entry.key, entry.value)
+  })
+
+  return {
+    entries,
+    query: params.toString(),
+    preview: params.toString() ? `?${params.toString()}` : '',
+  }
+})
+
+const numberBaseResult = computed(() => {
+  const source = numberBaseInput.value.trim()
+
+  if (!source) {
+    return {
+      tone: 'default' as const,
+      message: 'Nhập số và chọn hệ cơ số nguồn.',
+      decimal: '',
+      binary: '',
+      octal: '',
+      hex: '',
+    }
+  }
+
+  const parsed = Number.parseInt(source, Number(numberBase.value))
+
+  if (Number.isNaN(parsed)) {
+    return {
+      tone: 'error' as const,
+      message: 'Giá trị không hợp lệ cho hệ cơ số đã chọn.',
+      decimal: '',
+      binary: '',
+      octal: '',
+      hex: '',
+    }
+  }
+
+  return {
+    tone: 'success' as const,
+    message: 'Đã chuyển đổi giữa các hệ cơ số phổ biến.',
+    decimal: parsed.toString(10),
+    binary: parsed.toString(2),
+    octal: parsed.toString(8),
+    hex: parsed.toString(16).toUpperCase(),
+  }
+})
+
+const relativeTimeResult = computed(() => {
+  const source = relativeTimestampInput.value.trim()
+
+  if (!source) {
+    return {
+      tone: 'default' as const,
+      message: 'Nhập Unix timestamp để xem relative time.',
+      absolute: '',
+      relative: '',
+    }
+  }
+
+  const numericValue = Number(source)
+
+  if (!Number.isFinite(numericValue)) {
+    return {
+      tone: 'error' as const,
+      message: 'Timestamp phải là số hợp lệ.',
+      absolute: '',
+      relative: '',
+    }
+  }
+
+  const milliseconds = source.length <= 10 ? numericValue * 1000 : numericValue
+  const date = new Date(milliseconds)
+
+  if (Number.isNaN(date.getTime())) {
+    return {
+      tone: 'error' as const,
+      message: 'Timestamp không hợp lệ.',
+      absolute: '',
+      relative: '',
+    }
+  }
+
+  return {
+    tone: 'success' as const,
+    message: 'Đã tính relative time theo thời điểm hiện tại của máy bạn.',
+    absolute: date.toLocaleString('vi-VN'),
+    relative: formatRelativeTime(date.getTime() - Date.now()),
+  }
+})
+
+const parsedHeaders = computed(() => {
+  const lines = rawHeadersInput.value
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+
+  const headers = lines
+    .map((line) => {
+      const separatorIndex = line.indexOf(':')
+
+      if (separatorIndex === -1) {
+        return null
+      }
+
+      return {
+        key: line.slice(0, separatorIndex).trim(),
+        value: line.slice(separatorIndex + 1).trim(),
+      }
+    })
+    .filter((header): header is ParsedHeader => header !== null)
+
+  return {
+    headers,
+    json: headers.length ? JSON.stringify(Object.fromEntries(headers.map((header) => [header.key, header.value])), null, 2) : '',
+  }
+})
+
+const csvResult = computed(() => {
+  const source = csvInput.value.trim()
+
+  if (!source) {
+    return {
+      tone: 'default' as const,
+      message: 'Dán CSV có header ở dòng đầu để convert sang JSON.',
+      output: '',
+      rowCount: 0,
+    }
+  }
+
+  try {
+    const rows = parseCsv(source)
+
+    if (rows.length < 2) {
+      return {
+        tone: 'error' as const,
+        message: 'CSV cần ít nhất một dòng header và một dòng dữ liệu.',
+        output: '',
+        rowCount: 0,
+      }
+    }
+
+    const [headers = [], ...dataRows] = rows
+    const normalizedHeaders = headers.map((header, index) => header || `column_${index + 1}`)
+    const objects = dataRows.map((row) => csvRowToObject(normalizedHeaders, row))
+
+    return {
+      tone: 'success' as const,
+      message: `Đã convert ${objects.length} dòng CSV sang JSON.`,
+      output: JSON.stringify(objects, null, 2),
+      rowCount: objects.length,
+    }
+  } catch (error) {
+    return {
+      tone: 'error' as const,
+      message: error instanceof Error ? error.message : 'Không thể parse CSV.',
+      output: '',
+      rowCount: 0,
+    }
+  }
+})
+
+const colorResult = computed(() => {
+  const normalized = normalizeHexColor(colorInput.value.trim())
+
+  if (!normalized) {
+    return {
+      tone: 'error' as const,
+      message: 'Nhập màu dạng HEX như #FF6B4A hoặc #F64.',
+      hex: '',
+      rgb: '',
+      hsl: '',
+    }
+  }
+
+  const { r, g, b } = hexToRgb(normalized)
+  const { h, s, l } = rgbToHsl(r, g, b)
+
+  return {
+    tone: 'success' as const,
+    message: 'Đã convert màu sang RGB và HSL.',
+    hex: normalized.toUpperCase(),
+    rgb: `rgb(${r}, ${g}, ${b})`,
+    hsl: `hsl(${h}, ${s}%, ${l}%)`,
+  }
+})
+
 function formatJson() {
   if (jsonResult.value.output) jsonInput.value = jsonResult.value.output
 }
@@ -442,6 +763,24 @@ function decodeBase64UrlToText(value: string) {
   return decodeBase64ToText(`${normalized}${padding}`)
 }
 
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
+function unescapeHtml(value: string) {
+  return value
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, '&')
+}
+
 function extractJwtTimeFields(value: JsonValue) {
   if (!isJsonObject(value)) {
     return [] as JwtTimeField[]
@@ -560,6 +899,155 @@ function generateTypeScriptType(name: string, value: JsonValue) {
   return `type ${typeName} = ${body}`
 }
 
+function describeCronField(value: string, label: string) {
+  if (value === '*') {
+    return `mỗi ${label}`
+  }
+
+  if (value.startsWith('*/')) {
+    return `mỗi ${value.slice(2)} ${label}`
+  }
+
+  if (value.includes(',')) {
+    return `${label} thuộc các giá trị ${value}`
+  }
+
+  if (value.includes('-')) {
+    return `${label} trong khoảng ${value}`
+  }
+
+  return `${label} = ${value}`
+}
+
+function formatRelativeTime(diffMs: number) {
+  const formatter = new Intl.RelativeTimeFormat('vi', { numeric: 'auto' })
+  const minutes = Math.round(diffMs / 60000)
+  const hours = Math.round(diffMs / 3600000)
+  const days = Math.round(diffMs / 86400000)
+
+  if (Math.abs(days) >= 1) {
+    return formatter.format(days, 'day')
+  }
+
+  if (Math.abs(hours) >= 1) {
+    return formatter.format(hours, 'hour')
+  }
+
+  return formatter.format(minutes, 'minute')
+}
+
+function parseCsv(source: string) {
+  const rows: string[][] = []
+  let currentCell = ''
+  let currentRow: string[] = []
+  let inQuotes = false
+
+  for (let index = 0; index < source.length; index += 1) {
+    const character = source[index] ?? ''
+    const nextCharacter = source[index + 1] ?? ''
+
+    if (character === '"') {
+      if (inQuotes && nextCharacter === '"') {
+        currentCell += '"'
+        index += 1
+      } else {
+        inQuotes = !inQuotes
+      }
+      continue
+    }
+
+    if (character === ',' && !inQuotes) {
+      currentRow.push(currentCell)
+      currentCell = ''
+      continue
+    }
+
+    if ((character === '\n' || character === '\r') && !inQuotes) {
+      if (character === '\r' && nextCharacter === '\n') {
+        index += 1
+      }
+
+      currentRow.push(currentCell)
+      rows.push(currentRow)
+      currentCell = ''
+      currentRow = []
+      continue
+    }
+
+    currentCell += character
+  }
+
+  if (inQuotes) {
+    throw new Error('CSV có dấu nháy kép chưa đóng.')
+  }
+
+  currentRow.push(currentCell)
+  rows.push(currentRow)
+
+  return rows.filter((row) => row.some((cell) => cell.length > 0))
+}
+
+function csvRowToObject(headers: string[], row: string[]) {
+  return headers.reduce<CsvRow>((result, header, index) => {
+    result[header] = row[index] ?? ''
+    return result
+  }, {})
+}
+
+function normalizeHexColor(value: string) {
+  if (/^#?[0-9a-fA-F]{3}$/.test(value)) {
+    const raw = value.replace('#', '')
+    return `#${raw.split('').map((char) => `${char}${char}`).join('')}`
+  }
+
+  if (/^#?[0-9a-fA-F]{6}$/.test(value)) {
+    return value.startsWith('#') ? value : `#${value}`
+  }
+
+  return ''
+}
+
+function hexToRgb(hex: string) {
+  const raw = hex.replace('#', '')
+
+  return {
+    r: Number.parseInt(raw.slice(0, 2), 16),
+    g: Number.parseInt(raw.slice(2, 4), 16),
+    b: Number.parseInt(raw.slice(4, 6), 16),
+  }
+}
+
+function rgbToHsl(r: number, g: number, b: number) {
+  const red = r / 255
+  const green = g / 255
+  const blue = b / 255
+  const max = Math.max(red, green, blue)
+  const min = Math.min(red, green, blue)
+  const lightness = (max + min) / 2
+  const delta = max - min
+
+  if (delta === 0) {
+    return { h: 0, s: 0, l: Math.round(lightness * 100) }
+  }
+
+  const saturation = delta / (1 - Math.abs(2 * lightness - 1))
+  let hue = 0
+
+  if (max === red) {
+    hue = ((green - blue) / delta) % 6
+  } else if (max === green) {
+    hue = (blue - red) / delta + 2
+  } else {
+    hue = (red - green) / delta + 4
+  }
+
+  return {
+    h: Math.round(hue * 60 < 0 ? hue * 60 + 360 : hue * 60),
+    s: Math.round(saturation * 100),
+    l: Math.round(lightness * 100),
+  }
+}
+
 generateHash()
 generateUuids()
 </script>
@@ -567,49 +1055,140 @@ generateUuids()
 <template>
   <div class="min-h-screen bg-bg-deep text-text-primary">
     <div class="mx-auto flex w-full max-w-none flex-col px-4 py-6 sm:px-6 lg:px-8">
-      <header class="animate-fade-up border border-border-default bg-bg-surface p-5 sm:p-8">
-        <div class="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
-          <div class="max-w-3xl">
-            <RouterLink
-              to="/"
-              class="inline-flex items-center gap-2 border border-border-default px-4 py-2 text-sm text-text-secondary transition hover:border-accent-coral hover:bg-bg-elevated hover:text-text-primary"
-            >
-              &larr; Về trang chủ
-            </RouterLink>
-
-            <p class="mt-6 font-display text-sm tracking-[0.25em] text-accent-coral">// DEV TOOLKIT</p>
-            <h1 class="mt-4 font-display text-4xl font-bold tracking-tight text-text-primary sm:text-6xl lg:text-7xl">
-              Dev Pocket Tools
-            </h1>
-            <p class="mt-4 max-w-2xl text-base leading-7 text-text-secondary sm:text-lg">
-              Một bộ công cụ bỏ túi cho những việc lặp đi lặp lại trong ngày của dev: format JSON, mã hóa Base64,
-              bóc tách URL, đổi timestamp, test regex và tạo slug sạch cho URL.
-            </p>
-            <div class="mt-6 flex flex-wrap gap-3 text-xs font-medium tracking-wide text-text-secondary">
-              <span class="border border-border-default px-3 py-1">100% client-side</span>
-              <span class="border border-border-default px-3 py-1">Không gửi dữ liệu đi đâu</span>
-              <span class="border border-border-default px-3 py-1">Không cần dependency mới</span>
+      <header class="animate-fade-up overflow-hidden border border-border-default bg-bg-surface">
+        <div class="border-b border-border-default px-5 py-4 sm:px-8">
+          <div class="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+            <div class="flex flex-wrap items-center gap-3">
+              <RouterLink
+                to="/"
+                class="inline-flex items-center gap-2 border border-border-default px-4 py-2 text-sm text-text-secondary transition hover:border-accent-coral hover:bg-bg-elevated hover:text-text-primary"
+              >
+                &larr; Về trang chủ
+              </RouterLink>
+              <span class="border border-border-default bg-bg-deep px-3 py-2 font-display text-xs tracking-[0.25em] text-accent-sky">
+                WORKSPACE / DEV POCKET
+              </span>
             </div>
-          </div>
 
-          <div class="inline-flex w-fit self-start bg-accent-coral px-4 py-2 font-display text-xs font-bold tracking-[0.25em] text-bg-deep rotate-2">
-            VOL.01 / 2026
+            <div class="flex flex-wrap items-center gap-3 text-xs font-medium tracking-wide text-text-secondary">
+              <span class="border border-border-default px-3 py-2">20 pocket tools</span>
+              <span class="border border-border-default px-3 py-2">4 nhóm tác vụ</span>
+              <span class="border border-border-default px-3 py-2">100% client-side</span>
+              <div class="bg-accent-coral px-4 py-2 font-display font-bold tracking-[0.25em] text-bg-deep">
+                VOL.01 / 2026
+              </div>
+            </div>
           </div>
         </div>
 
-        <div class="mt-8 flex gap-1.5">
-          <span v-for="n in 36" :key="n" class="h-1 w-1 rounded-full bg-border-default" />
+        <div class="grid gap-0 xl:grid-cols-[minmax(0,1.4fr)_minmax(360px,0.9fr)]">
+          <div class="px-5 py-8 sm:px-8 sm:py-10">
+            <p class="font-display text-sm tracking-[0.3em] text-accent-coral">// DEV TOOLKIT</p>
+            <h1 class="mt-4 max-w-4xl font-display text-4xl font-bold leading-none tracking-tight text-text-primary sm:text-6xl xl:text-7xl">
+              Dev Pocket Tools
+            </h1>
+            <p class="mt-5 max-w-3xl text-base leading-8 text-text-secondary sm:text-lg">
+              Một workspace utility cho những thao tác lặp đi lặp lại của dev. Thay vì một trang dài và loãng, mỗi nhóm tool giờ được tổ chức như các module riêng để bạn vào đúng việc nhanh hơn.
+            </p>
+
+            <div class="mt-8 grid gap-3 sm:grid-cols-3">
+              <div class="border border-border-default bg-bg-deep px-4 py-4">
+                <p class="font-display text-xs tracking-[0.25em] text-accent-coral">ACTIVE GROUP</p>
+                <p class="mt-2 font-display text-lg font-semibold text-text-primary">{{ currentToolPage.label }}</p>
+                <p class="mt-1 text-sm text-text-secondary">{{ currentToolPage.description }}</p>
+              </div>
+              <div class="border border-border-default bg-bg-deep px-4 py-4">
+                <p class="font-display text-xs tracking-[0.25em] text-accent-amber">FOCUS MODE</p>
+                <p class="mt-2 text-sm leading-6 text-text-secondary">Chỉ hiện 5 tool đúng nhóm để giảm nhiễu khi thao tác.</p>
+              </div>
+              <div class="border border-border-default bg-bg-deep px-4 py-4">
+                <p class="font-display text-xs tracking-[0.25em] text-accent-sky">TRUST</p>
+                <p class="mt-2 text-sm leading-6 text-text-secondary">Không gửi dữ liệu đi đâu, không backend, không dependency mới.</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="border-t border-border-default bg-bg-deep/70 px-5 py-8 sm:px-8 xl:border-t-0 xl:border-l">
+            <p class="font-display text-sm tracking-[0.3em] text-accent-amber">// QUICK START</p>
+            <div class="mt-5 space-y-4">
+              <div class="border border-border-default bg-bg-surface px-4 py-4">
+                <p class="font-display text-xs tracking-[0.25em] text-text-dim">STEP 01</p>
+                <p class="mt-2 text-sm leading-6 text-text-secondary">Chọn nhóm tool ở ngay bên dưới theo mục đích: build, xử lý data, làm việc với time, hoặc inspect dữ liệu.</p>
+              </div>
+              <div class="border border-border-default bg-bg-surface px-4 py-4">
+                <p class="font-display text-xs tracking-[0.25em] text-text-dim">STEP 02</p>
+                <p class="mt-2 text-sm leading-6 text-text-secondary">Chỉnh input trực tiếp trong card, copy output khi cần, và chỉ thấy phần cần dùng ở thời điểm đó.</p>
+              </div>
+              <div class="border border-border-default bg-bg-surface px-4 py-4">
+                <p class="font-display text-xs tracking-[0.25em] text-text-dim">STEP 03</p>
+                <p class="mt-2 text-sm leading-6 text-text-secondary">Nếu đang ở sai nhóm, dùng thanh navigation như tab app để đổi ngữ cảnh mà không mất dữ liệu đã nhập.</p>
+              </div>
+            </div>
+          </div>
         </div>
       </header>
 
       <section class="animate-fade-up animate-delay-2 mt-8">
-        <h2 class="mb-6 flex items-center gap-3 font-display text-2xl font-semibold text-text-primary">
-          <span class="font-display text-sm tracking-widest text-accent-coral">//</span>
-          Bộ công cụ
-        </h2>
+        <div class="mb-8 border border-border-default bg-bg-surface p-5">
+          <div class="flex flex-col gap-5">
+            <div class="flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
+              <div>
+                <p class="font-display text-sm tracking-[0.25em] text-accent-amber">// TOOL PAGES</p>
+                <h2 class="mt-2 font-display text-2xl font-semibold text-text-primary">Điều hướng theo nhóm</h2>
+                <p class="mt-2 max-w-2xl text-sm leading-6 text-text-secondary">
+                  Mỗi nhóm là một ngữ cảnh làm việc. Chọn một tab để giữ màn hình gọn, đúng việc và dễ quét hơn.
+                </p>
+              </div>
+              <div class="border border-border-default bg-bg-deep px-4 py-3">
+                <p class="font-display text-xs tracking-[0.25em] text-text-dim">NOW OPEN</p>
+                <p class="mt-1 font-display text-lg font-semibold text-text-primary">{{ currentToolPage.label }}</p>
+              </div>
+            </div>
+
+            <div class="grid gap-3 xl:grid-cols-4">
+              <button
+                v-for="page in toolPages"
+                :key="page.id"
+                type="button"
+                class="group relative overflow-hidden border px-4 py-4 text-left transition-all duration-300"
+                :class="page.id === currentPage
+                  ? 'border-accent-coral bg-bg-elevated text-text-primary shadow-lg shadow-accent-coral/10'
+                  : 'border-border-default bg-bg-deep text-text-secondary hover:-translate-y-1 hover:border-accent-coral hover:text-text-primary'"
+                @click="currentPage = page.id"
+              >
+                <div
+                  class="absolute inset-y-0 left-0 w-1 transition-all"
+                  :class="page.id === currentPage ? 'bg-accent-coral' : 'bg-transparent group-hover:bg-accent-coral/40'"
+                />
+                <div class="pl-2">
+                  <div class="flex items-center justify-between gap-3">
+                    <p class="font-display text-base font-semibold">{{ page.label }}</p>
+                    <span
+                      class="border px-2 py-1 text-[10px] tracking-[0.25em]"
+                      :class="page.id === currentPage ? 'border-accent-coral text-accent-coral' : 'border-border-default text-text-dim'"
+                    >
+                      05
+                    </span>
+                  </div>
+                  <p class="mt-2 text-sm leading-6">{{ page.description }}</p>
+                </div>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="mb-6 flex flex-col gap-3 border-l-4 border-l-accent-coral pl-4 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <p class="font-display text-sm tracking-widest text-accent-coral">// TOOL GRID</p>
+            <h2 class="mt-1 font-display text-2xl font-semibold text-text-primary">{{ currentToolPage.label }}</h2>
+          </div>
+          <p class="max-w-2xl text-sm leading-6 text-text-secondary">
+            {{ currentToolPage.description }}. Mỗi card vẫn giữ logic cũ, nhưng phần khung đã được tối ưu để đọc nhanh và chuyển ngữ cảnh mượt hơn.
+          </p>
+        </div>
 
         <div class="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
-          <article class="animate-fade-up animate-delay-2 border border-border-default bg-bg-surface p-5 transition-all duration-300 hover:-translate-y-1 hover:border-accent-coral hover:bg-bg-elevated hover:shadow-lg hover:shadow-accent-coral/5">
+          <article v-if="currentPage === 'builders'" class="animate-fade-up animate-delay-2 border border-border-default bg-bg-surface p-5 transition-all duration-300 hover:-translate-y-1 hover:border-accent-coral hover:bg-bg-elevated hover:shadow-lg hover:shadow-accent-coral/5">
             <div class="flex items-start justify-between gap-4">
               <div>
                 <p class="font-display text-xs tracking-[0.25em] text-accent-coral">07</p>
@@ -649,7 +1228,7 @@ generateUuids()
             </div>
           </article>
 
-          <article class="animate-fade-up animate-delay-3 border border-border-default bg-bg-surface p-5 transition-all duration-300 hover:-translate-y-1 hover:border-accent-coral hover:bg-bg-elevated hover:shadow-lg hover:shadow-accent-coral/5">
+          <article v-if="currentPage === 'builders'" class="animate-fade-up animate-delay-3 border border-border-default bg-bg-surface p-5 transition-all duration-300 hover:-translate-y-1 hover:border-accent-coral hover:bg-bg-elevated hover:shadow-lg hover:shadow-accent-coral/5">
             <div class="flex items-start justify-between gap-4">
               <div>
                 <p class="font-display text-xs tracking-[0.25em] text-accent-amber">08</p>
@@ -682,7 +1261,7 @@ generateUuids()
             </div>
           </article>
 
-          <article class="animate-fade-up animate-delay-4 border border-border-default bg-bg-surface p-5 transition-all duration-300 hover:-translate-y-1 hover:border-accent-coral hover:bg-bg-elevated hover:shadow-lg hover:shadow-accent-coral/5">
+          <article v-if="currentPage === 'builders'" class="animate-fade-up animate-delay-4 border border-border-default bg-bg-surface p-5 transition-all duration-300 hover:-translate-y-1 hover:border-accent-coral hover:bg-bg-elevated hover:shadow-lg hover:shadow-accent-coral/5">
             <div class="flex items-start justify-between gap-4">
               <div>
                 <p class="font-display text-xs tracking-[0.25em] text-accent-sky">09</p>
@@ -706,7 +1285,7 @@ generateUuids()
             </div>
           </article>
 
-          <article class="animate-fade-up animate-delay-5 border border-border-default bg-bg-surface p-5 transition-all duration-300 hover:-translate-y-1 hover:border-accent-coral hover:bg-bg-elevated hover:shadow-lg hover:shadow-accent-coral/5">
+          <article v-if="currentPage === 'builders'" class="animate-fade-up animate-delay-5 border border-border-default bg-bg-surface p-5 transition-all duration-300 hover:-translate-y-1 hover:border-accent-coral hover:bg-bg-elevated hover:shadow-lg hover:shadow-accent-coral/5">
             <div class="flex items-start justify-between gap-4">
               <div>
                 <p class="font-display text-xs tracking-[0.25em] text-accent-coral">10</p>
@@ -729,7 +1308,7 @@ generateUuids()
             </div>
           </article>
 
-          <article class="animate-fade-up animate-delay-6 border border-border-default bg-bg-surface p-5 transition-all duration-300 hover:-translate-y-1 hover:border-accent-coral hover:bg-bg-elevated hover:shadow-lg hover:shadow-accent-coral/5">
+          <article v-if="currentPage === 'builders'" class="animate-fade-up animate-delay-6 border border-border-default bg-bg-surface p-5 transition-all duration-300 hover:-translate-y-1 hover:border-accent-coral hover:bg-bg-elevated hover:shadow-lg hover:shadow-accent-coral/5">
             <div class="flex items-start justify-between gap-4">
               <div>
                 <p class="font-display text-xs tracking-[0.25em] text-accent-amber">11</p>
@@ -753,7 +1332,7 @@ generateUuids()
             </div>
           </article>
 
-          <article class="animate-fade-up animate-delay-2 border border-border-default bg-bg-surface p-5 transition-all duration-300 hover:-translate-y-1 hover:border-accent-coral hover:bg-bg-elevated hover:shadow-lg hover:shadow-accent-coral/5">
+          <article v-if="currentPage === 'data'" class="animate-fade-up animate-delay-2 border border-border-default bg-bg-surface p-5 transition-all duration-300 hover:-translate-y-1 hover:border-accent-coral hover:bg-bg-elevated hover:shadow-lg hover:shadow-accent-coral/5">
             <div class="flex items-start justify-between gap-4">
               <div>
                 <p class="font-display text-xs tracking-[0.25em] text-accent-coral">01</p>
@@ -778,7 +1357,7 @@ generateUuids()
             <pre class="mt-2 min-h-32 overflow-x-auto border border-border-default bg-bg-deep px-4 py-3 text-sm leading-6 whitespace-pre-wrap"><code>{{ jsonResult.output || 'Kết quả formatted JSON sẽ hiện ở đây.' }}</code></pre>
           </article>
 
-          <article class="animate-fade-up animate-delay-3 border border-border-default bg-bg-surface p-5 transition-all duration-300 hover:-translate-y-1 hover:border-accent-coral hover:bg-bg-elevated hover:shadow-lg hover:shadow-accent-coral/5">
+          <article v-if="currentPage === 'data'" class="animate-fade-up animate-delay-3 border border-border-default bg-bg-surface p-5 transition-all duration-300 hover:-translate-y-1 hover:border-accent-coral hover:bg-bg-elevated hover:shadow-lg hover:shadow-accent-coral/5">
             <div class="flex items-start justify-between gap-4">
               <div>
                 <p class="font-display text-xs tracking-[0.25em] text-accent-amber">02</p>
@@ -800,7 +1379,7 @@ generateUuids()
             <textarea v-model="base64Value" rows="4" spellcheck="false" class="mt-2 w-full border border-border-default bg-bg-deep px-4 py-3 text-sm text-text-primary outline-none transition focus:border-accent-coral" />
           </article>
 
-          <article class="animate-fade-up animate-delay-4 border border-border-default bg-bg-surface p-5 transition-all duration-300 hover:-translate-y-1 hover:border-accent-coral hover:bg-bg-elevated hover:shadow-lg hover:shadow-accent-coral/5">
+          <article v-if="currentPage === 'data'" class="animate-fade-up animate-delay-4 border border-border-default bg-bg-surface p-5 transition-all duration-300 hover:-translate-y-1 hover:border-accent-coral hover:bg-bg-elevated hover:shadow-lg hover:shadow-accent-coral/5">
             <div class="flex items-start justify-between gap-4">
               <div>
                 <p class="font-display text-xs tracking-[0.25em] text-accent-sky">03</p>
@@ -849,7 +1428,7 @@ generateUuids()
             </div>
           </article>
 
-          <article class="animate-fade-up animate-delay-5 border border-border-default bg-bg-surface p-5 transition-all duration-300 hover:-translate-y-1 hover:border-accent-coral hover:bg-bg-elevated hover:shadow-lg hover:shadow-accent-coral/5">
+          <article v-if="currentPage === 'time'" class="animate-fade-up animate-delay-5 border border-border-default bg-bg-surface p-5 transition-all duration-300 hover:-translate-y-1 hover:border-accent-coral hover:bg-bg-elevated hover:shadow-lg hover:shadow-accent-coral/5">
             <div class="flex items-start justify-between gap-4">
               <div>
                 <p class="font-display text-xs tracking-[0.25em] text-accent-coral">04</p>
@@ -898,7 +1477,7 @@ generateUuids()
             </div>
           </article>
 
-          <article class="animate-fade-up animate-delay-6 border border-border-default bg-bg-surface p-5 transition-all duration-300 hover:-translate-y-1 hover:border-accent-coral hover:bg-bg-elevated hover:shadow-lg hover:shadow-accent-coral/5">
+          <article v-if="currentPage === 'time'" class="animate-fade-up animate-delay-6 border border-border-default bg-bg-surface p-5 transition-all duration-300 hover:-translate-y-1 hover:border-accent-coral hover:bg-bg-elevated hover:shadow-lg hover:shadow-accent-coral/5">
             <div class="flex items-start justify-between gap-4">
               <div>
                 <p class="font-display text-xs tracking-[0.25em] text-accent-amber">05</p>
@@ -939,7 +1518,7 @@ generateUuids()
             </div>
           </article>
 
-          <article class="animate-fade-up animate-delay-7 border border-border-default bg-bg-surface p-5 transition-all duration-300 hover:-translate-y-1 hover:border-accent-coral hover:bg-bg-elevated hover:shadow-lg hover:shadow-accent-coral/5">
+          <article v-if="currentPage === 'time'" class="animate-fade-up animate-delay-7 border border-border-default bg-bg-surface p-5 transition-all duration-300 hover:-translate-y-1 hover:border-accent-coral hover:bg-bg-elevated hover:shadow-lg hover:shadow-accent-coral/5">
             <div class="flex items-start justify-between gap-4">
               <div>
                 <p class="font-display text-xs tracking-[0.25em] text-accent-sky">06</p>
@@ -962,28 +1541,244 @@ generateUuids()
             </div>
           </article>
 
+          <article v-if="currentPage === 'data'" class="animate-fade-up animate-delay-7 border border-border-default bg-bg-surface p-5 transition-all duration-300 hover:-translate-y-1 hover:border-accent-coral hover:bg-bg-elevated hover:shadow-lg hover:shadow-accent-coral/5">
+            <div class="flex items-start justify-between gap-4">
+              <div>
+                <p class="font-display text-xs tracking-[0.25em] text-accent-coral">12</p>
+                <h3 class="mt-2 font-display text-xl font-semibold">HTML Escape / Unescape</h3>
+                <p class="mt-2 text-sm leading-6 text-text-secondary">Chuyển ký tự đặc biệt sang entity HTML và ngược lại để debug nhanh markup.</p>
+              </div>
+              <button type="button" class="border border-border-default px-3 py-2 text-xs text-text-secondary transition hover:border-accent-coral hover:text-text-primary" @click="copyText('html-escaped', htmlEscapeResult.escaped)">Copy Escaped</button>
+            </div>
+
+            <label class="mt-5 block text-xs font-display tracking-[0.2em] text-text-dim">INPUT</label>
+            <textarea v-model="htmlInput" rows="4" spellcheck="false" class="mt-2 w-full border border-border-default bg-bg-deep px-4 py-3 text-sm text-text-primary outline-none transition focus:border-accent-coral" />
+            <p class="mt-4 text-sm text-accent-sky">{{ htmlEscapeResult.message }}</p>
+
+            <div class="mt-4 grid gap-4 sm:grid-cols-2">
+              <div class="border border-border-default bg-bg-deep px-4 py-3">
+                <p class="text-xs font-display tracking-[0.2em] text-text-dim">ESCAPED</p>
+                <p class="mt-2 break-all text-sm">{{ htmlEscapeResult.escaped || '...' }}</p>
+              </div>
+              <div class="border border-border-default bg-bg-deep px-4 py-3">
+                <p class="text-xs font-display tracking-[0.2em] text-text-dim">UNESCAPED</p>
+                <p class="mt-2 break-all text-sm">{{ htmlEscapeResult.unescaped || '...' }}</p>
+              </div>
+            </div>
+          </article>
+
+          <article v-if="currentPage === 'inspect'" class="animate-fade-up animate-delay-2 border border-border-default bg-bg-surface p-5 transition-all duration-300 hover:-translate-y-1 hover:border-accent-coral hover:bg-bg-elevated hover:shadow-lg hover:shadow-accent-coral/5">
+            <div class="flex items-start justify-between gap-4">
+              <div>
+                <p class="font-display text-xs tracking-[0.25em] text-accent-amber">13</p>
+                <h3 class="mt-2 font-display text-xl font-semibold">Text Diff Lite</h3>
+                <p class="mt-2 text-sm leading-6 text-text-secondary">So sánh hai khối text theo từng dòng để nhìn nhanh phần thay đổi.</p>
+              </div>
+            </div>
+
+            <div class="mt-5 grid gap-4 lg:grid-cols-2">
+              <div>
+                <label class="block text-xs font-display tracking-[0.2em] text-text-dim">LEFT</label>
+                <textarea v-model="diffLeft" rows="5" spellcheck="false" class="mt-2 w-full border border-border-default bg-bg-deep px-4 py-3 text-sm text-text-primary outline-none transition focus:border-accent-coral" />
+              </div>
+              <div>
+                <label class="block text-xs font-display tracking-[0.2em] text-text-dim">RIGHT</label>
+                <textarea v-model="diffRight" rows="5" spellcheck="false" class="mt-2 w-full border border-border-default bg-bg-deep px-4 py-3 text-sm text-text-primary outline-none transition focus:border-accent-coral" />
+              </div>
+            </div>
+
+            <p class="mt-4 text-sm text-text-secondary">{{ diffResult.summary }}</p>
+
+            <div class="mt-4 space-y-2">
+              <div
+                v-for="(line, index) in diffResult.lines"
+                :key="index"
+                class="grid gap-3 border px-4 py-3 text-sm lg:grid-cols-2"
+                :class="{
+                  'border-border-default bg-bg-deep': line.type === 'same',
+                  'border-accent-sky bg-accent-sky/10': line.type === 'added',
+                  'border-accent-amber bg-accent-amber/10': line.type === 'removed',
+                  'border-accent-coral bg-accent-coral/10': line.type === 'changed',
+                }"
+              >
+                <p class="break-all">{{ line.left || '∅' }}</p>
+                <p class="break-all">{{ line.right || '∅' }}</p>
+              </div>
+            </div>
+          </article>
+
+          <article v-if="currentPage === 'time'" class="animate-fade-up animate-delay-3 border border-border-default bg-bg-surface p-5 transition-all duration-300 hover:-translate-y-1 hover:border-accent-coral hover:bg-bg-elevated hover:shadow-lg hover:shadow-accent-coral/5">
+            <div class="flex items-start justify-between gap-4">
+              <div>
+                <p class="font-display text-xs tracking-[0.25em] text-accent-sky">14</p>
+                <h3 class="mt-2 font-display text-xl font-semibold">Cron Parser</h3>
+                <p class="mt-2 text-sm leading-6 text-text-secondary">Đọc nhanh cron expression 5 field ở mức mô tả thân thiện với con người.</p>
+              </div>
+              <button type="button" class="border border-border-default px-3 py-2 text-xs text-text-secondary transition hover:border-accent-coral hover:text-text-primary" @click="copyText('cron', cronResult.output)">Copy Output</button>
+            </div>
+
+            <label class="mt-5 block text-xs font-display tracking-[0.2em] text-text-dim">CRON</label>
+            <input v-model="cronInput" type="text" spellcheck="false" class="mt-2 w-full border border-border-default bg-bg-deep px-4 py-3 text-sm text-text-primary outline-none transition focus:border-accent-coral" />
+            <p class="mt-4 text-sm" :class="{ 'text-text-secondary': cronResult.tone === 'default', 'text-accent-sky': cronResult.tone === 'success', 'text-accent-amber': cronResult.tone === 'error' }">
+              {{ cronResult.message }}
+            </p>
+            <div class="mt-4 border border-border-default bg-bg-deep px-4 py-3">
+              <p class="break-words text-sm">{{ cronResult.output || 'Phần diễn giải cron sẽ hiện ở đây.' }}</p>
+            </div>
+          </article>
+
+          <article v-if="currentPage === 'data'" class="animate-fade-up animate-delay-4 border border-border-default bg-bg-surface p-5 transition-all duration-300 hover:-translate-y-1 hover:border-accent-coral hover:bg-bg-elevated hover:shadow-lg hover:shadow-accent-coral/5">
+            <div class="flex items-start justify-between gap-4">
+              <div>
+                <p class="font-display text-xs tracking-[0.25em] text-accent-coral">15</p>
+                <h3 class="mt-2 font-display text-xl font-semibold">Query String Builder</h3>
+                <p class="mt-2 text-sm leading-6 text-text-secondary">Nhập nhiều cặp key=value để ráp query string và preview phần URL tương ứng.</p>
+              </div>
+              <button type="button" class="border border-border-default px-3 py-2 text-xs text-text-secondary transition hover:border-accent-coral hover:text-text-primary" @click="copyText('query-builder', queryBuilderResult.query)">Copy Query</button>
+            </div>
+
+            <label class="mt-5 block text-xs font-display tracking-[0.2em] text-text-dim">KEY=VALUE PER LINE</label>
+            <textarea v-model="queryBuilderInput" rows="5" spellcheck="false" class="mt-2 w-full border border-border-default bg-bg-deep px-4 py-3 text-sm text-text-primary outline-none transition focus:border-accent-coral" />
+
+            <div class="mt-4 grid gap-4 sm:grid-cols-2">
+              <div class="border border-border-default bg-bg-deep px-4 py-3">
+                <p class="text-xs font-display tracking-[0.2em] text-text-dim">QUERY STRING</p>
+                <p class="mt-2 break-all text-sm">{{ queryBuilderResult.query || '...' }}</p>
+              </div>
+              <div class="border border-border-default bg-bg-deep px-4 py-3">
+                <p class="text-xs font-display tracking-[0.2em] text-text-dim">URL PREVIEW</p>
+                <p class="mt-2 break-all text-sm">{{ queryBuilderResult.preview || '...' }}</p>
+              </div>
+            </div>
+          </article>
+
+          <article v-if="currentPage === 'inspect'" class="animate-fade-up animate-delay-5 border border-border-default bg-bg-surface p-5 transition-all duration-300 hover:-translate-y-1 hover:border-accent-coral hover:bg-bg-elevated hover:shadow-lg hover:shadow-accent-coral/5">
+            <div class="flex items-start justify-between gap-4">
+              <div>
+                <p class="font-display text-xs tracking-[0.25em] text-accent-amber">16</p>
+                <h3 class="mt-2 font-display text-xl font-semibold">Number Base Converter</h3>
+                <p class="mt-2 text-sm leading-6 text-text-secondary">Chuyển đổi qua lại giữa decimal, binary, octal và hex từ một đầu vào duy nhất.</p>
+              </div>
+              <button type="button" class="border border-border-default px-3 py-2 text-xs text-text-secondary transition hover:border-accent-coral hover:text-text-primary" @click="copyText('number-base', numberBaseResult.hex)">Copy Hex</button>
+            </div>
+
+            <div class="mt-5 flex flex-col gap-3 sm:flex-row">
+              <input v-model="numberBaseInput" type="text" spellcheck="false" class="min-w-0 flex-1 border border-border-default bg-bg-deep px-4 py-3 text-sm text-text-primary outline-none transition focus:border-accent-coral" />
+              <select v-model="numberBase" class="border border-border-default bg-bg-deep px-4 py-3 text-sm text-text-primary outline-none transition focus:border-accent-coral">
+                <option value="10">Decimal</option>
+                <option value="2">Binary</option>
+                <option value="8">Octal</option>
+                <option value="16">Hex</option>
+              </select>
+            </div>
+
+            <p class="mt-4 text-sm" :class="{ 'text-text-secondary': numberBaseResult.tone === 'default', 'text-accent-sky': numberBaseResult.tone === 'success', 'text-accent-amber': numberBaseResult.tone === 'error' }">
+              {{ numberBaseResult.message }}
+            </p>
+
+            <div class="mt-4 grid gap-4 sm:grid-cols-2">
+              <div class="border border-border-default bg-bg-deep px-4 py-3"><p class="text-xs font-display tracking-[0.2em] text-text-dim">DEC</p><p class="mt-2 break-all font-mono text-sm">{{ numberBaseResult.decimal || '...' }}</p></div>
+              <div class="border border-border-default bg-bg-deep px-4 py-3"><p class="text-xs font-display tracking-[0.2em] text-text-dim">BIN</p><p class="mt-2 break-all font-mono text-sm">{{ numberBaseResult.binary || '...' }}</p></div>
+              <div class="border border-border-default bg-bg-deep px-4 py-3"><p class="text-xs font-display tracking-[0.2em] text-text-dim">OCT</p><p class="mt-2 break-all font-mono text-sm">{{ numberBaseResult.octal || '...' }}</p></div>
+              <div class="border border-border-default bg-bg-deep px-4 py-3"><p class="text-xs font-display tracking-[0.2em] text-text-dim">HEX</p><p class="mt-2 break-all font-mono text-sm">{{ numberBaseResult.hex || '...' }}</p></div>
+            </div>
+          </article>
+
+          <article v-if="currentPage === 'time'" class="animate-fade-up animate-delay-6 border border-border-default bg-bg-surface p-5 transition-all duration-300 hover:-translate-y-1 hover:border-accent-coral hover:bg-bg-elevated hover:shadow-lg hover:shadow-accent-coral/5">
+            <div class="flex items-start justify-between gap-4">
+              <div>
+                <p class="font-display text-xs tracking-[0.25em] text-accent-sky">17</p>
+                <h3 class="mt-2 font-display text-xl font-semibold">Unix Time Relative</h3>
+                <p class="mt-2 text-sm leading-6 text-text-secondary">Xem một timestamp là bao lâu trước hoặc bao lâu nữa so với hiện tại.</p>
+              </div>
+            </div>
+
+            <label class="mt-5 block text-xs font-display tracking-[0.2em] text-text-dim">TIMESTAMP</label>
+            <input v-model="relativeTimestampInput" type="text" class="mt-2 w-full border border-border-default bg-bg-deep px-4 py-3 text-sm text-text-primary outline-none transition focus:border-accent-coral" />
+
+            <p class="mt-4 text-sm" :class="{ 'text-text-secondary': relativeTimeResult.tone === 'default', 'text-accent-sky': relativeTimeResult.tone === 'success', 'text-accent-amber': relativeTimeResult.tone === 'error' }">
+              {{ relativeTimeResult.message }}
+            </p>
+
+            <div class="mt-4 grid gap-4 sm:grid-cols-2">
+              <div class="border border-border-default bg-bg-deep px-4 py-3"><p class="text-xs font-display tracking-[0.2em] text-text-dim">ABSOLUTE</p><p class="mt-2 text-sm">{{ relativeTimeResult.absolute || '...' }}</p></div>
+              <div class="border border-border-default bg-bg-deep px-4 py-3"><p class="text-xs font-display tracking-[0.2em] text-text-dim">RELATIVE</p><p class="mt-2 text-sm">{{ relativeTimeResult.relative || '...' }}</p></div>
+            </div>
+          </article>
+
+          <article v-if="currentPage === 'inspect'" class="animate-fade-up animate-delay-7 border border-border-default bg-bg-surface p-5 transition-all duration-300 hover:-translate-y-1 hover:border-accent-coral hover:bg-bg-elevated hover:shadow-lg hover:shadow-accent-coral/5">
+            <div class="flex items-start justify-between gap-4">
+              <div>
+                <p class="font-display text-xs tracking-[0.25em] text-accent-coral">18</p>
+                <h3 class="mt-2 font-display text-xl font-semibold">HTTP Header Parser</h3>
+                <p class="mt-2 text-sm leading-6 text-text-secondary">Parse raw headers thành danh sách key/value và JSON object dễ đọc.</p>
+              </div>
+              <button type="button" class="border border-border-default px-3 py-2 text-xs text-text-secondary transition hover:border-accent-coral hover:text-text-primary" @click="copyText('headers-json', parsedHeaders.json)">Copy JSON</button>
+            </div>
+
+            <label class="mt-5 block text-xs font-display tracking-[0.2em] text-text-dim">RAW HEADERS</label>
+            <textarea v-model="rawHeadersInput" rows="5" spellcheck="false" class="mt-2 w-full border border-border-default bg-bg-deep px-4 py-3 text-sm text-text-primary outline-none transition focus:border-accent-coral" />
+
+            <div class="mt-4 space-y-2">
+              <div v-for="header in parsedHeaders.headers" :key="header.key" class="border border-border-default bg-bg-deep px-4 py-3 text-sm">
+                <p><span class="text-accent-amber">{{ header.key }}</span>: {{ header.value }}</p>
+              </div>
+            </div>
+
+            <div class="mt-4 border border-border-default bg-bg-deep px-4 py-3">
+              <p class="text-xs font-display tracking-[0.2em] text-text-dim">JSON</p>
+              <pre class="mt-2 overflow-x-auto text-sm whitespace-pre-wrap"><code>{{ parsedHeaders.json || 'JSON object sẽ hiện ở đây.' }}</code></pre>
+            </div>
+          </article>
+
+          <article v-if="currentPage === 'inspect'" class="animate-fade-up animate-delay-2 border border-border-default bg-bg-surface p-5 transition-all duration-300 hover:-translate-y-1 hover:border-accent-coral hover:bg-bg-elevated hover:shadow-lg hover:shadow-accent-coral/5">
+            <div class="flex items-start justify-between gap-4">
+              <div>
+                <p class="font-display text-xs tracking-[0.25em] text-accent-amber">19</p>
+                <h3 class="mt-2 font-display text-xl font-semibold">CSV to JSON</h3>
+                <p class="mt-2 text-sm leading-6 text-text-secondary">Convert CSV có header sang JSON array ngay trên client, hỗ trợ quote cơ bản.</p>
+              </div>
+              <button type="button" class="border border-border-default px-3 py-2 text-xs text-text-secondary transition hover:border-accent-coral hover:text-text-primary" @click="copyText('csv-json', csvResult.output)">Copy JSON</button>
+            </div>
+
+            <label class="mt-5 block text-xs font-display tracking-[0.2em] text-text-dim">CSV INPUT</label>
+            <textarea v-model="csvInput" rows="6" spellcheck="false" class="mt-2 w-full border border-border-default bg-bg-deep px-4 py-3 font-mono text-sm text-text-primary outline-none transition focus:border-accent-coral" />
+            <p class="mt-4 text-sm" :class="{ 'text-text-secondary': csvResult.tone === 'default', 'text-accent-sky': csvResult.tone === 'success', 'text-accent-amber': csvResult.tone === 'error' }">
+              {{ csvResult.message }}
+            </p>
+            <div class="mt-4 border border-border-default bg-bg-deep px-4 py-3">
+              <p class="text-xs font-display tracking-[0.2em] text-text-dim">JSON OUTPUT</p>
+              <pre class="mt-2 overflow-x-auto text-sm whitespace-pre-wrap"><code>{{ csvResult.output || 'Kết quả JSON sẽ hiện ở đây.' }}</code></pre>
+            </div>
+          </article>
+
+          <article v-if="currentPage === 'inspect'" class="animate-fade-up animate-delay-3 border border-border-default bg-bg-surface p-5 transition-all duration-300 hover:-translate-y-1 hover:border-accent-coral hover:bg-bg-elevated hover:shadow-lg hover:shadow-accent-coral/5">
+            <div class="flex items-start justify-between gap-4">
+              <div>
+                <p class="font-display text-xs tracking-[0.25em] text-accent-sky">20</p>
+                <h3 class="mt-2 font-display text-xl font-semibold">Color Converter</h3>
+                <p class="mt-2 text-sm leading-6 text-text-secondary">Nhập màu HEX để xem preview và convert nhanh sang RGB, HSL.</p>
+              </div>
+              <button type="button" class="border border-border-default px-3 py-2 text-xs text-text-secondary transition hover:border-accent-coral hover:text-text-primary" @click="copyText('color-hex', colorResult.hex)">Copy HEX</button>
+            </div>
+
+            <label class="mt-5 block text-xs font-display tracking-[0.2em] text-text-dim">HEX COLOR</label>
+            <input v-model="colorInput" type="text" spellcheck="false" class="mt-2 w-full border border-border-default bg-bg-deep px-4 py-3 text-sm text-text-primary outline-none transition focus:border-accent-coral" />
+            <p class="mt-4 text-sm" :class="{ 'text-accent-sky': colorResult.tone === 'success', 'text-accent-amber': colorResult.tone === 'error' }">
+              {{ colorResult.message }}
+            </p>
+
+            <div class="mt-4 flex items-center gap-4">
+              <div class="h-16 w-16 border border-border-default" :style="{ backgroundColor: colorResult.hex || 'transparent' }" />
+              <div class="grid flex-1 gap-3">
+                <div class="border border-border-default bg-bg-deep px-4 py-3"><p class="text-xs font-display tracking-[0.2em] text-text-dim">HEX</p><p class="mt-2 break-all text-sm">{{ colorResult.hex || '...' }}</p></div>
+                <div class="border border-border-default bg-bg-deep px-4 py-3"><p class="text-xs font-display tracking-[0.2em] text-text-dim">RGB</p><p class="mt-2 break-all text-sm">{{ colorResult.rgb || '...' }}</p></div>
+                <div class="border border-border-default bg-bg-deep px-4 py-3"><p class="text-xs font-display tracking-[0.2em] text-text-dim">HSL</p><p class="mt-2 break-all text-sm">{{ colorResult.hsl || '...' }}</p></div>
+              </div>
+            </div>
+          </article>
+
         </div>
-      </section>
-
-      <section class="animate-fade-up animate-delay-3 mt-10 border border-border-default bg-bg-surface p-5 sm:p-6">
-        <h2 class="mb-4 flex items-center gap-3 font-display text-2xl font-semibold text-text-primary">
-          <span class="font-display text-sm tracking-widest text-accent-sky">//</span>
-          Quy ước xử lý
-        </h2>
-        <p class="max-w-3xl text-sm leading-7 text-text-secondary sm:text-base">
-          Mọi thao tác trên trang này đều chạy trực tiếp trong trình duyệt. Không có network call, không lưu backend, không gửi dữ liệu của bạn ra ngoài. Đây là một utility hub self-contained đúng theo tinh thần của repo.
-        </p>
-
-        <div v-if="copyStatus" class="mt-4 border px-4 py-3 text-sm" :class="{ 'border-border-default text-text-secondary': copyStatus.state === 'default', 'border-accent-sky text-accent-sky': copyStatus.state === 'success', 'border-accent-amber text-accent-amber': copyStatus.state === 'error' }">
-          {{ copyStatus.message }}
-        </div>
-
-        <RouterLink
-          to="/"
-          class="mt-6 inline-flex items-center gap-2 border border-border-default px-4 py-2 text-sm text-text-secondary transition hover:border-accent-coral hover:bg-bg-elevated hover:text-text-primary"
-        >
-          &larr; Quay lại launcher
-        </RouterLink>
       </section>
     </div>
   </div>
