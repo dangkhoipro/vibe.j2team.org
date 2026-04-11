@@ -188,7 +188,6 @@ export function playNoteSound(frequency: number, duration = 0.9) {
   // On mobile, small speakers cannot reproduce deep bass well. Instead of
   // relying only on sub‑frequencies, add a small peaking filter to lift the
   // mid-bass band and route harmonics that phones can actually play.
-  let finalDestination: AudioNode = ctx.destination
   let bassFilter: BiquadFilterNode | null = null
   if (isMobile && isBass) {
     bassFilter = ctx.createBiquadFilter()
@@ -199,7 +198,6 @@ export function playNoteSound(frequency: number, duration = 0.9) {
     bassFilter.gain.setValueAtTime(4, now) // +4 dB (tuned down for less boom)
     masterGain.connect(bassFilter)
     bassFilter.connect(ctx.destination)
-    finalDestination = bassFilter
   } else {
     masterGain.connect(ctx.destination)
   }
